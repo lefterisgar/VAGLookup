@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="./assets/logo.svg">
+    <title>VAGLookup</title>
+    <style>
+        [x-cloak]{display:none!important}
+        ::-webkit-scrollbar{width:8px;height:8px}
+        ::-webkit-scrollbar-track{background:rgba(15,23,42,0.5);border-radius:999px}
+        ::-webkit-scrollbar-thumb{background:#374151;border-radius:999px}
+        ::-webkit-scrollbar-thumb:hover{background:#4b5563}
+        ::-webkit-scrollbar-button{display:none}
+        *{scrollbar-color:#374151 rgba(15,23,42,0.5);scrollbar-width:thin}
+    </style>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script src="./app/utils/utils.js"></script>
+    <script src="./app/utils/validation.js"></script>
+    <script src="./app/api/kosmocar.js"></script>
+    <script src="./app/api/vwglobal.js"></script>
+    <script src="./app/api/superetka.js"></script>
+    <script src="./app/ui/superetka-viewer.js"></script>
+    <script src="./app/ui/ui-helpers.js"></script>
+    <script src="./app/ui/state-helpers.js"></script>
+    <script src="./app/index.js"></script>
+</head>
+<body x-data="vagLookup()" x-cloak class="bg-gray-900 text-white min-h-screen p-4 flex items-center justify-center">
+    <main class="w-full max-w-8xl space-y-6">
+        <header class="text-center space-y-2">
+            <img src="./assets/logo.svg" alt="VAGLookup" class="h-16 w-16 mx-auto invert">
+            <h1 class="text-4xl font-extrabold tracking-tight">VAGLookup</h1>
+            <p class="text-gray-400 max-w-xl mx-auto" x-text="taglines[taglineIndex]"></p>
+        </header>
+
+        <section x-ref="resultsPanel" class="rounded-[2rem] bg-gray-900/85 p-5 shadow-2xl ring-1 ring-white/5">
+            <div class="grid items-stretch gap-6 lg:grid-cols-2 xl:grid-cols-[minmax(320px,360px)_minmax(340px,420px)_minmax(320px,1fr)]">
+                <div class="flex h-full flex-col gap-4">
+                    <!-- Vehicle lookup section -->
+                    <article x-ref="lookupPanel" class="rounded-2xl border border-gray-800 bg-gray-950/60 p-5 space-y-3">
+                        <header class="text-xs uppercase tracking-[0.25em] text-gray-200">Lookup</header>
+                        <input type="text" x-model="query" @keydown.enter="fetchData()" placeholder="Enter VIN or license plate" class="h-12 w-full rounded-xl border border-gray-700 bg-gray-900/70 px-3 text-white placeholder:text-gray-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+                        <button @click="fetchData()" :disabled="loading" class="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-500 font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60">
+                            <svg x-show="!loading" x-cloak class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            </svg>
+                            <div x-show="loading" x-cloak class="h-4 w-4 animate-spin rounded-full border-2 border-t-transparent"></div>
+                            <span x-text="loading ? 'Searching…' : 'Run Lookup'"></span>
+                        </button>
+                        <p class="text-xs text-gray-500">We sanitize the input before calling Kosmocar &amp; VW endpoints.</p>
+                        <div x-show="message" x-transition.opacity.duration.300ms x-cloak class="flex items-start gap-2 rounded-xl bg-red-500/90 p-3 text-xs font-semibold text-white">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <circle cx="12" cy="12" r="10" stroke-width="2"></circle>
+                                <line x1="12" y1="8" x2="12" y2="12" stroke-width="2"></line>
+                                <circle cx="12" cy="16" r="1" fill="currentColor"></circle>
+                            </svg>
+                            <span x-text="message"></span>
+                        </div>
+                    </article>
+
+                    <!-- Vehicle info section -->
+                    <article x-ref="vehiclePanel" class="flex-1 rounded-2xl border border-gray-800 bg-gray-950/60 p-5 space-y-4">
+                        <header class="text-xs uppercase tracking-[0.3em] text-gray-200">Vehicle info</header>
+                        <template x-if="result">
+                            <dl x-show="showVehicleContent" x-transition.opacity.scale.duration.350ms class="grid gap-5 text-sm text-gray-100" x-cloak>
+                                <div class="flex flex-col gap-1">
+                                    <dt class="text-xs uppercase tracking-[0.3em] text-gray-500">VIN</dt>
+                                    <div class="flex items-center gap-2">
+                                        <dd class="font-semibold font-mono tracking-widest text-base text-gray-50 break-all" x-text="result.vin"></dd>
+                                        <button @click="copyField(result.vin, 'vin')" class="flex h-7 w-7 items-center justify-center rounded-full border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition-transform duration-200" :class="copiedField === 'vin' ? 'scale-110 text-green-300 border-green-400' : ''">
+                                            <svg x-show="copiedField !== 'vin'" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"></rect>
+                                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke-width="2"/>
+                                            </svg>
+                                            <svg x-show="copiedField === 'vin'" class="h-4 w-4 text-green-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div class="flex flex-col gap-1">
+                                        <dt class="text-xs uppercase tracking-[0.3em] text-gray-500">Make</dt>
+                                        <dd class="font-semibold" x-text="result.make"></dd>
+                                    </div>
+                                    <div class="flex flex-col gap-1">
+                                        <dt class="text-xs uppercase tracking-[0.3em] text-gray-500">Model</dt>
+                                        <dd class="font-semibold" x-text="result.model"></dd>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div class="flex flex-col gap-1">
+                                        <dt class="text-xs uppercase tracking-[0.3em] text-gray-500">Production year</dt>
+                                        <dd class="font-semibold" x-text="result.prod_year"></dd>
+                                    </div>
+                                    <div class="flex flex-col gap-1">
+                                        <dt class="text-xs uppercase tracking-[0.3em] text-gray-500">Registration date</dt>
+                                        <dd class="font-semibold" x-text="result.licensing_date"></dd>
+                                    </div>
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    <dt class="text-xs uppercase tracking-[0.3em] text-gray-500">License no.</dt>
+                                    <div class="flex items-center gap-2">
+                                        <dd class="font-semibold text-base tracking-wide" x-text="result.license_no"></dd>
+                                        <button @click="copyField(result.license_no, 'license')" class="flex h-7 w-7 items-center justify-center rounded-full border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition-transform duration-200" :class="copiedField === 'license' ? 'scale-110 text-green-300 border-green-400' : ''">
+                                            <svg x-show="copiedField !== 'license'" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" stroke-width="2"></rect>
+                                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke-width="2"/>
+                                            </svg>
+                                            <svg x-show="copiedField === 'license'" class="h-4 w-4 text-green-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </dl>
+                        </template>
+                        <div x-show="vehiclePlaceholder" x-cloak class="flex min-h-[5.5rem] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-gray-800 bg-gray-900/30 px-4 text-center text-sm text-gray-300">
+                            <template x-if="vehicleMessageLoading">
+                                <div class="flex h-5 w-5 items-center justify-center">
+                                    <div class="h-5 w-5 animate-spin rounded-full border border-current border-t-transparent"></div>
+                                </div>
+                            </template>
+                            <template x-if="!vehicleMessageLoading">
+                                <svg class="h-6 w-6 text-white/80 drop-shadow" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <circle cx="12" cy="12" r="9" stroke-width="1.9"></circle>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M12 8v4m0 4h.01"/>
+                                </svg>
+                            </template>
+                            <p x-text="vehiclePlaceholder"></p>
+                        </div>
+                        <div x-show="result && result.hasVehicleProfile === false" x-cloak class="flex min-h-[4.5rem] items-center gap-3 rounded-xl border border-dashed border-yellow-700/60 bg-yellow-500/5 px-4 text-sm text-yellow-200">
+                            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v4m0 4h.01M4.93 19h14.14c1.04 0 1.7-1.12 1.18-2.03L13.18 4.94c-.52-.91-1.84-.91-2.36 0L3.75 16.97C3.23 17.88 3.89 19 4.93 19z"/>
+                            </svg>
+                            <span>No Kosmocar profile for this VIN yet. Recall data may still be available.</span>
+                        </div>
+                    </article>
+                </div>
+
+                <!-- Recall center section -->
+                <article x-ref="recallPanel" class="rounded-2xl border border-gray-800 bg-gray-950/60 p-5 space-y-4 h-full">
+                    <header class="text-xs uppercase tracking-[0.3em] text-gray-200">Recall Center</header>
+
+                    <div class="flex flex-col gap-4">
+                        <div x-show="recallPlaceholderVisible" x-transition.opacity.duration.200ms class="flex min-h-[5rem] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-800/80 bg-gray-900/40 p-4 text-center text-sm text-gray-300" x-cloak>
+                            <template x-if="recallMessageLoading">
+                                <div class="flex h-5 w-5 items-center justify-center">
+                                    <div class="h-5 w-5 animate-spin rounded-full border border-current border-t-transparent"></div>
+                                </div>
+                            </template>
+                            <template x-if="!recallMessageLoading">
+                                <svg class="h-6 w-6 text-white/80 drop-shadow" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <circle cx="12" cy="12" r="9" stroke-width="1.9"></circle>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M12 8v4m0 4h.01"/>
+                                </svg>
+                            </template>
+                            <p x-text="recallPlaceholder"></p>
+                        </div>
+
+                        <div x-show="showRecallContent && recallStatusNote" x-transition.opacity.duration.250ms class="rounded-2xl border border-yellow-700/60 bg-yellow-500/5 p-4 text-xs text-yellow-200" x-cloak>
+                            <span x-text="recallStatusNote"></span>
+                        </div>
+
+                        <div x-show="showRecallContent && result && (!result.recalls || result.recalls.length === 0) && (!result.vwGlobalRecalls || result.vwGlobalRecalls.length === 0)" x-transition.opacity.duration.250ms class="flex h-[7.5rem] flex-col items-center justify-center gap-2 rounded-2xl border border-gray-800 p-5 text-sm text-gray-200" x-cloak>
+                            <svg class="h-8 w-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            <p>No recalls found for this vehicle.</p>
+                        </div>
+
+                        <template x-if="result && result.recalls && result.recalls.length > 0">
+                            <section x-show="showKosmocarResults" x-transition.opacity.duration.300ms class="rounded-2xl border border-gray-800 p-4 space-y-5" x-cloak>
+                                <header class="flex items-center justify-between text-sm text-gray-300">
+                                    <h3 class="font-semibold text-gray-100">Kosmocar</h3>
+                                    <span class="rounded-full border border-gray-700 px-3 py-1 text-xs text-gray-200" x-text="result.recalls.length + ' total'"></span>
+                                </header>
+                                <ul class="space-y-3">
+                                    <template x-for="recall in result.recalls" :key="recall.id">
+                                        <li x-transition:enter="transition duration-400 ease-out" x-transition:enter-start="opacity-0 translate-y-1" class="rounded-xl border border-gray-700 p-3 bg-gray-900/30">
+                                            <div class="flex flex-wrap items-center gap-2 text-sm font-semibold text-gray-100">
+                                                <span class="font-semibold" x-text="recall.id"></span>
+                                                <span class="rounded-full border border-orange-200/60 px-3 py-0.5 text-xs uppercase tracking-wide text-orange-200">Open</span>
+                                            </div>
+                                            <p class="mt-2 text-sm text-gray-200" x-text="recall.details"></p>
+                                            <p class="mt-1 text-xs text-gray-400"><strong>Start:</strong> <span x-text="recall.startDate || 'Unknown'"></span></p>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </section>
+                        </template>
+
+                        <template x-if="result && result.vwGlobalRecalls && result.vwGlobalRecalls.length > 0">
+                            <section x-show="showRecallContent" x-transition.opacity.duration.300ms class="rounded-2xl border border-gray-800 p-4 space-y-3" x-cloak>
+                                <header class="flex items-center justify-between text-sm text-gray-300">
+                                    <h3 class="font-semibold text-gray-100">VW Global</h3>
+                                    <span class="rounded-full border border-gray-700 px-3 py-1 text-xs text-gray-200" x-text="result.vwGlobalRecalls.length + ' total'"></span>
+                                </header>
+                                <ul class="space-y-3">
+                                    <template x-for="recall in result.vwGlobalRecalls" :key="recall.id">
+                                        <li x-transition:enter="transition duration-400 ease-out" x-transition:enter-start="opacity-0 translate-y-1" class="rounded-xl border border-gray-700 p-3 bg-gray-900/20">
+                                            <div class="flex flex-wrap items-center gap-2 text-sm font-semibold text-gray-100">
+                                                <template x-if="recall.campaignType === 'airbag'">
+                                                    <img src="./assets/airbag.svg" alt="Airbag Recall" class="h-5 w-5 filter invert brightness-90">
+                                                </template>
+                                                <template x-if="recall.campaignType === 'diesel' || recall.campaignType === 'cng'">
+                                                    <img src="./assets/diesel.svg" alt="Diesel Recall" class="h-5 w-5 filter invert brightness-90">
+                                                </template>
+                                                <span class="font-semibold" x-text="recall.id"></span>
+                                                <span class="rounded-full border border-gray-500 px-3 py-0.5 text-xs uppercase tracking-wide" x-text="recall.campaignType"></span>
+                                                <span :class="recall.repairDate ? 'border-green-300/60 text-green-200' : 'border-orange-200/60 text-orange-200'" class="rounded-full border px-3 py-0.5 text-xs uppercase tracking-wide" x-text="recall.repairDate ? 'Completed' : 'Open'"></span>
+                                            </div>
+                                            <p class="mt-2 text-sm text-gray-200" x-text="recall.details"></p>
+                                            <p class="mt-1 text-xs text-gray-400"><strong>Start:</strong> <span x-text="recall.startDate"></span></p>
+                                            <p class="text-xs text-gray-400" x-show="recall.repairDate"><strong>Repaired on:</strong> <span x-text="recall.repairDate"></span></p>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </section>
+                        </template>
+                    </div>
+                </article>
+
+                <!-- SuperETKA section -->
+                <article class="rounded-2xl border border-gray-800 bg-gray-950/60 p-5 space-y-5 h-full" x-cloak>
+                    <header class="flex items-center justify-between text-xs uppercase tracking-[0.3em] text-gray-200">
+                        <span>Dealer &amp; Factory Records</span>
+                        <span class="text-[0.65rem] text-gray-400 font-semibold tracking-[0.2em]">Powered by SUPERETKA™</span>
+                    </header>
+
+                    <div class="flex flex-col gap-5 min-h-[20rem]">
+                        <div x-show="superEtkaPlaceholder && (!superEtka.checked || superEtkaMessageLoading || superEtkaQueue.status === 'checking')" class="flex min-h-[5rem] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-800/80 bg-gray-900/35 p-4 text-center text-sm text-gray-300" x-cloak>
+                            <div class="flex h-5 w-5 items-center justify-center">
+                                <div x-show="superEtkaMessageLoading || superEtkaQueue.status === 'checking'" class="h-5 w-5 animate-spin rounded-full border border-current border-t-transparent"></div>
+                                <svg x-show="!superEtkaMessageLoading && superEtkaQueue.status !== 'checking' && !superEtka.checked" class="h-6 w-6 text-white/80 drop-shadow" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <circle cx="12" cy="12" r="9" stroke-width="1.9"></circle>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M12 8v4m0 4h.01"/>
+                                </svg>
+                            </div>
+                            <div class="space-y-1 text-gray-300">
+                                <p x-text="superEtkaPlaceholder"></p>
+                            </div>
+                        </div>
+
+                        <div x-show="superEtka.checked && superEtka.found && superEtkaRevealReady" x-transition.opacity.duration.250ms class="space-y-4" x-cloak>
+                            <div class="rounded-2xl bg-gradient-to-br from-blue-500/10 via-slate-500/5 to-transparent p-4 text-sm text-gray-200 border border-white/5">
+                                <p class="text-[0.6rem] uppercase tracking-[0.4em] text-blue-200/70">Dossier ready</p>
+                                <p class="mt-1 text-base font-semibold text-white">SuperETKA has decoded this VIN.</p>
+                            </div>
+                            <div class="grid gap-4">
+                                <button type="button" @click="openSuperEtkaHtml('pr')" class="group w-full rounded-2xl border border-gray-700/70 bg-gray-900/40 p-4 text-left transition hover:border-blue-400/70 hover:bg-blue-500/10" :class="{'cursor-wait opacity-60 pointer-events-none': superEtkaHtmlLoading === 'pr'}">
+                                    <div class="flex items-start justify-between gap-4">
+                                        <div>
+                                            <p class="font-semibold text-gray-100">PR / Equipment Codes</p>
+                                            <p class="mt-1 text-xs text-gray-400">Factory options, build sheet, and equipment list.</p>
+                                        </div>
+                                        <div class="flex items-center gap-2 text-[0.6rem] uppercase tracking-[0.25em] text-gray-400">
+                                            <span class="rounded-full border border-gray-700/70 px-3 py-1">Factory</span>
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-blue-200/80">
+                                        <div x-show="superEtkaHtmlLoading === 'pr'" class="h-3.5 w-3.5 animate-spin rounded-full border border-current border-t-transparent"></div>
+                                        <span x-text="superEtkaHtmlLoading === 'pr' ? 'Opening…' : 'Open report'"></span>
+                                    </div>
+                                </button>
+                                <button type="button" @click="openSuperEtkaHtml('coding')" class="group w-full rounded-2xl border border-gray-700/70 bg-gray-900/40 p-4 text-left transition hover:border-blue-400/70 hover:bg-blue-500/10" :class="{'cursor-wait opacity-60 pointer-events-none': superEtkaHtmlLoading === 'coding'}">
+                                    <div class="flex items-start justify-between gap-4">
+                                        <div>
+                                            <p class="font-semibold text-gray-100">Component Coding</p>
+                                            <p class="mt-1 text-xs text-gray-400">Control unit coding and module configuration export.</p>
+                                        </div>
+                                        <div class="flex items-center gap-2 text-[0.6rem] uppercase tracking-[0.25em] text-gray-400">
+                                            <span class="rounded-full border border-gray-700/70 px-3 py-1">ECU</span>
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-blue-200/80">
+                                        <div x-show="superEtkaHtmlLoading === 'coding'" class="h-3.5 w-3.5 animate-spin rounded-full border border-current border-t-transparent"></div>
+                                        <span x-text="superEtkaHtmlLoading === 'coding' ? 'Opening…' : 'Open report'"></span>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div x-show="superEtka.checked && !superEtka.found" class="space-y-4" x-cloak>
+                            <div x-show="superEtkaQueue.status === 'pending' || superEtkaQueue.status === 'transition'" x-transition:enter="transition ease-out duration-350" x-transition:enter-start="opacity-0 translate-y-1" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-250" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="space-y-2 rounded-2xl border border-blue-500/40 bg-blue-500/5 p-4 text-sm text-blue-100" x-cloak>
+                                <div class="flex flex-col items-center gap-2">
+                                    <div class="h-5 w-5 animate-spin rounded-full border border-blue-200 border-t-transparent"></div>
+                                    <p class="font-semibold text-center">VIN queued for SuperETKA decoding</p>
+                                </div>
+                                <p class="text-xs text-blue-200 text-center">
+                                    Queue position: <span class="font-semibold" x-text="superEtkaQueue.position"></span>
+                                </p>
+                                <p class="text-[0.7rem] text-blue-200/80 text-center">
+                                    Decoded to date: <span x-text="superEtkaQueue.decodedCount"></span>
+                                </p>
+                            </div>
+                            <div x-show="superEtkaQueue.status !== 'pending' && superEtkaQueue.status !== 'done' && superEtkaQueue.status !== 'checking' && superEtkaQueue.status !== 'transition'" x-transition.opacity.duration.200ms class="flex flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-yellow-700/60 bg-yellow-500/5 p-5 text-sm text-yellow-200 text-center" x-cloak>
+                                <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="300" height="40" viewBox="0 1000 3000 1400">
+                                    <path fill="none" stroke-width="1223.11" stroke-linecap="butt" stroke-linejoin="round" stroke="rgb(156 163 175)" stroke-opacity="1" stroke-miterlimit="4" d="M 9794.84375 16059.6875 L 19764.414062 16059.6875 C 20428.398438 16059.6875 20962.890625 15525.195312 20962.890625 14861.40625 L 20962.890625 13913.398438 C 20962.890625 13249.609375 20428.398438 12715.117188 19764.414062 12715.117188 L 9794.84375 12715.117188 C 9130.9375 12715.117188 8596.445312 13249.609375 8596.445312 13913.398438 L 8596.445312 14861.40625 C 8596.445312 15525.195312 9130.9375 16059.6875 9794.84375 16059.6875 Z M 9794.84375 16059.6875 " transform="matrix(0.1, 0, 0, -0.1, 0, 3000)"/>
+                                    <path fill-rule="nonzero" fill="rgb(156 163 175)" fill-opacity="1" d="M 975.492188 1677.988281 L 1118.96875 1677.988281 C 1177.519531 1677.988281 1224.660156 1725.121094 1224.660156 1783.671875 L 1224.660156 1879.640625 C 1224.660156 1938.191406 1177.519531 1985.320312 1118.96875 1985.320312 L 975.492188 1985.320312 C 916.945312 1985.320312 869.808594 1938.191406 869.808594 1879.640625 L 869.808594 1783.671875 C 869.808594 1725.121094 916.945312 1677.988281 975.492188 1677.988281 Z M 975.492188 1677.988281 "/>
+                                    <path fill-rule="nonzero" fill="rgb(156 163 175)" fill-opacity="1" d="M 1840.238281 1674.078125 L 1983.71875 1674.078125 C 2042.269531 1674.078125 2089.398438 1721.21875 2089.398438 1779.769531 L 2089.398438 1875.730469 C 2089.398438 1934.28125 2042.269531 1981.410156 1983.71875 1981.410156 L 1840.238281 1981.410156 C 1781.691406 1981.410156 1734.558594 1934.28125 1734.558594 1875.730469 L 1734.558594 1779.769531 C 1734.558594 1721.21875 1781.691406 1674.078125 1840.238281 1674.078125 Z M 1840.238281 1674.078125 "/>
+                                    <path fill="none" stroke-width="1100.75" stroke-linecap="butt" stroke-linejoin="round" stroke="rgb(156 163 175)" stroke-opacity="1" stroke-miterlimit="4" d="M 9021.835938 16195.703125 L 10507.890625 19281.210938 L 19226.796875 19302.890625 L 20492.109375 16171.015625 Z M 9021.835938 16195.703125 " transform="matrix(0.1, 0, 0, -0.1, 0, 3000)"/>
+                                    <path fill="none" stroke-width="1223.11" stroke-linecap="butt" stroke-linejoin="round" stroke="rgb(156 163 175)" stroke-opacity="1" stroke-miterlimit="4" d="M 11141.796875 14383.984375 C 11141.796875 14206.992188 10998.90625 14063.515625 10822.5 14063.515625 C 10646.289062 14063.515625 10503.28125 14206.992188 10503.28125 14383.984375 C 10503.28125 14561.09375 10646.289062 14704.609375 10822.5 14704.609375 C 10998.90625 14704.609375 11141.796875 14561.09375 11141.796875 14383.984375 Z M 11141.796875 14383.984375 " transform="matrix(0.1, 0, 0, -0.1, 0, 3000)"/>
+                                    <path fill="none" stroke-width="1223.11" stroke-linecap="butt" stroke-linejoin="round" stroke="rgb(156 163 175)" stroke-opacity="1" stroke-miterlimit="4" d="M 18940.585938 14393.90625 C 18940.585938 14216.914062 18797.695312 14073.398438 18621.289062 14073.398438 C 18445 14073.398438 18302.109375 14216.914062 18302.109375 14393.90625 C 18302.109375 14571.015625 18445 14714.492188 18621.289062 14714.492188 C 18797.695312 14714.492188 18940.585938 14571.015625 18940.585938 14393.90625 Z M 18940.585938 14393.90625 " transform="matrix(0.1, 0, 0, -0.1, 0, 3000)"/>
+                                    <path fill="none" stroke-width="1223.11" stroke-linecap="butt" stroke-linejoin="round" stroke="rgb(156 163 175)" stroke-opacity="1" stroke-miterlimit="4" d="M 20691.09375 16302.617188 L 21974.257812 16302.617188 L 21974.257812 16717.460938 L 20691.09375 16717.460938 Z M 20691.09375 16302.617188 " transform="matrix(0.1, 0, 0, -0.1, 0, 3000)"/>
+                                    <path fill="none" stroke-width="1223.11" stroke-linecap="butt" stroke-linejoin="round" stroke="rgb(156 163 175)" stroke-opacity="1" stroke-miterlimit="4" d="M 7518.984375 16302.617188 L 8802.109375 16302.617188 L 8802.109375 16717.460938 L 7518.984375 16717.460938 Z M 7518.984375 16302.617188 " transform="matrix(0.1, 0, 0, -0.1, 0, 3000)"/>
+                                    <path fill-rule="nonzero" fill="rgb(21 22 26)" fill-opacity="1" stroke-width="852.638" stroke-linecap="round" stroke-linejoin="round" stroke="rgb(156 163 175)" stroke-opacity="1" stroke-miterlimit="4" d="M 22666.210938 14498.90625 C 22666.210938 12830.390625 21319.804688 11477.695312 19658.789062 11477.695312 C 17997.890625 11477.695312 16651.40625 12830.390625 16651.40625 14498.90625 C 16651.40625 16167.5 17997.890625 17520.195312 19658.789062 17520.195312 C 21319.804688 17520.195312 22666.210938 16167.5 22666.210938 14498.90625 Z M 22666.210938 14498.90625 " transform="matrix(0.1, 0, 0, -0.1, 0, 3000)"/>
+                                    <path fill="none" stroke-width="625" stroke-linecap="round" stroke-linejoin="round" stroke="rgb(254 240 138)" stroke-opacity="1" stroke-miterlimit="4" d="M 18520.390625 13644.296875 L 20864.101562 15402.109375 " transform="matrix(0.1, 0, 0, -0.1, 0, 3000)"/>
+                                    <path fill="none" stroke-width="625" stroke-linecap="round" stroke-linejoin="round" stroke="rgb(254 240 138)" stroke-opacity="1" stroke-miterlimit="4" d="M 20830.703125 13620 L 18486.914062 15377.890625 " transform="matrix(0.1, 0, 0, -0.1, 0, 3000)"/>
+                                </svg>
+                                <div class="space-y-1 text-[0.95rem]">
+                                    <p>This VIN is not in SUPERETKA yet.</p>
+                                    <p class="text-xs text-yellow-200/80">Each vehicle is manually decoded. Add it to the queue and it will appear here once ready.</p>
+                                    <p class="text-xs text-yellow-200/80">Our underground archive already covers <span class="font-semibold" x-text="superEtkaQueue.decodedCount"></span> vehicles.</p>
+                                </div>
+                            </div>
+                            <div x-show="superEtkaQueue.status !== 'pending' && superEtkaQueue.status !== 'done' && superEtkaQueue.status !== 'checking' && superEtkaQueue.status !== 'transition'" class="space-y-3" x-cloak>
+                                <textarea x-model="superEtkaQueue.comment" maxlength="120" placeholder="Add optional note for the queue (VIN variant, etc.)" class="w-full rounded-xl border border-gray-700/70 bg-gray-900/30 px-3 py-1.5 text-sm text-gray-100 placeholder:text-gray-500 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"></textarea>
+                                <button @click="enqueueSuperEtka()" class="w-full rounded-xl border border-gray-700/70 bg-gray-900/50 px-4 py-3 text-sm font-semibold text-gray-100 hover:border-blue-400 transition" :disabled="superEtkaQueue.loading">
+                                    <span x-show="!superEtkaQueue.loading">Add to queue</span>
+                                    <span x-show="superEtkaQueue.loading">Requesting…</span>
+                                </button>
+                            </div>
+                            <template x-if="superEtkaQueue.error">
+                                <p class="text-xs text-red-400 text-center" x-text="superEtkaQueue.error"></p>
+                            </template>
+                        </div>
+                        <div class="text-center text-[0.65rem] uppercase tracking-[0.35em] text-gray-500">Decoded archive: <span class="text-yellow-100" x-text="superEtkaQueue.decodedCount"></span></div>
+                    </div>
+                </article>
+            </div>
+        </section>
+        <footer class="text-center text-xs uppercase tracking-[0.35em] text-gray-500/80">
+            <a href="https://github.com/lefterisgar/vaglookup" target="_blank" rel="noopener" class="hover:text-white transition">VAGLookup v0.9.0 — Built by Lefteris</a>
+        </footer>
+    </main>
+    <button type="button" @click="showHelp = true; $nextTick(() => $refs.helpClose?.focus())" class="fixed bottom-6 right-6 z-30 inline-flex items-center gap-2 rounded-full border border-blue-400/60 bg-blue-500/20 px-4 py-2 text-sm font-semibold text-blue-100 backdrop-blur transition hover:bg-blue-500/40 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 focus:ring-offset-gray-900">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.6">
+            <circle cx="12" cy="12" r="9" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.5a2.25 2.25 0 0 1 4.07-1.31c.26.38.43.82.43 1.31 0 1.5-1.93 2.25-1.93 2.25v1.25"/>
+            <circle cx="12" cy="16.5" r="0.75" fill="currentColor"/>
+        </svg>
+        Quick help
+    </button>
+    <!-- Help menu -->
+    <div x-show="showHelp" x-cloak x-transition.opacity.duration.200ms class="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4">
+        <div @click.away="showHelp = false" class="w-full max-w-lg rounded-3xl border border-gray-800 bg-gray-950 p-6 shadow-2xl">
+            <header class="flex items-center justify-between mb-4">
+                <div>
+                    <p class="text-[0.6rem] uppercase tracking-[0.4em] text-gray-500">VAGLookup help</p>
+                    <h2 class="text-xl font-semibold text-white">Quick reference</h2>
+                </div>
+                <button @click="showHelp = false" x-ref="helpClose" class="rounded-full border border-gray-700/60 p-2 text-gray-400 hover:text-white hover:border-gray-500 transition">
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6L6 18"/>
+                    </svg>
+                </button>
+            </header>
+            <div class="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+            <dl class="space-y-4 text-sm text-gray-300">
+                <div>
+                    <dt class="font-semibold text-gray-100">What is VAGLookup?</dt>
+                    <dd class="text-gray-400 leading-relaxed">A single tool that checks your VW / Audi / Skoda using the official Kosmocar systems, VW’s global recall feeds and Lefteris’ SuperETKA archive. No account is required and nothing is stored.</dd>
+                </div>
+                <div>
+                    <dt class="font-semibold text-gray-100">What can I type?</dt>
+                    <dd class="text-gray-400 leading-relaxed">Enter either a VAG VIN (17 characters) or a Greek registration plate. We clean the input automatically and make sure it belongs to the VW Group before searching.</dd>
+                </div>
+                <div>
+                    <dt class="font-semibold text-gray-100">Why did my plate fail?</dt>
+                    <dd class="text-gray-400 leading-relaxed">Plates work only when the car is registered with Kosmocar (the official VW Group importer in Greece). If a vehicle was imported privately the plate may not exist in their database. Use the VIN instead.</dd>
+                </div>
+                <div>
+                    <dt class="font-semibold text-gray-100">What information should I expect?</dt>
+                    <dd class="text-gray-400 leading-relaxed">Vehicle details when Kosmocar has them, Kosmocar recalls, VW Global recalls for VW VINs, and advanced SuperETKA documents. Each card lights up as soon as its data becomes available.</dd>
+                </div>
+                <div>
+                    <dt class="font-semibold text-gray-100">How are recalls handled?</dt>
+                    <dd class="text-gray-400 leading-relaxed">The tool first checks Kosmocar’s recall database, then Volkswagen Global recall services (diesel/CNG and airbag campaigns). If every source reports clear, you will simply see “No recalls found”.</dd>
+                </div>
+                <div>
+                    <dt class="font-semibold text-gray-100">How does SuperETKA work?</dt>
+                    <dd class="text-gray-400 leading-relaxed">SuperETKA contains factory build sheets and coding documents. If your VIN is already decoded, the PDFs/TXT/HTML links appear instantly. If not, you can add it to Lefteris’ manual queue: a pending status and live decoded counter will keep you updated until the dossier is ready.</dd>
+                </div>
+                <div>
+                    <dt class="font-semibold text-gray-100">Need more details?</dt>
+                    <dd class="text-gray-400 leading-relaxed">This window keeps things simple. The GitHub README explains the technical side if you are curious.</dd>
+                </div>
+            </dl>
+            <div class="pt-3 text-center text-[0.65rem] text-gray-500 tracking-[0.25em] uppercase border-t border-gray-800">Updated · 2025-12-15</div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
